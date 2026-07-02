@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Spire Agent Bench</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&family=Tomorrow:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="rig">
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="run-form" title="Collapse controls">
+          <span class="sidebar-toggle-icon">‹</span>
+          <span class="sr-only">Collapse controls</span>
+        </button>
+        <div class="rig-inner">
+          <div class="mark">
+            <span class="mark-kicker">STS2 agent harness</span>
+            <h1>Spire Agent Bench</h1>
+          </div>
+
+          <form id="run-form" class="control-stack">
+          <label>
+            <span>Harness</span>
+            <select name="harness" id="harness-select">
+              <option value="codex-cli">Codex agent</option>
+              <option value="claude-code">Claude Code</option>
+              <option value="cursor-cli">Cursor Agent</option>
+            </select>
+          </label>
+          <label>
+            <span>Model</span>
+            <select name="model" id="model-select">
+              <option value="gpt-5.5" selected>GPT-5.5</option>
+              <option value="">Codex default</option>
+            </select>
+            <small id="model-resolved" class="field-hint">Model id: gpt-5.5</small>
+          </label>
+          <label>
+            <span id="reasoning-label">Reasoning</span>
+            <select name="reasoning_effort" id="reasoning-select">
+              <option value="medium" selected>medium</option>
+              <option value="low">low</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+            </select>
+          </label>
+          <label>
+            <span>Profile</span>
+            <select name="agent_workdir" id="profile-select">
+              <option value="agent_profiles/codex_base" selected>Base system prompt</option>
+            </select>
+          </label>
+          <details class="prompt-editor" open>
+            <summary>
+              <span>System Prompt</span>
+              <small id="prompt-status">AGENTS.md</small>
+            </summary>
+            <label>
+              <span>Base Instructions</span>
+              <textarea id="agents-md-editor" spellcheck="false"></textarea>
+            </label>
+            <div class="button-row compact">
+              <button id="reload-prompt-button" type="button" class="secondary">Reload</button>
+              <button id="save-prompt-button" type="button" class="secondary">Save Prompt</button>
+            </div>
+          </details>
+          <div class="split">
+            <label>
+              <span>Character</span>
+              <select name="character">
+                <option value="IRONCLAD" selected>Ironclad</option>
+                <option value="SILENT">Silent</option>
+                <option value="DEFECT">Defect</option>
+                <option value="REGENT">Regent</option>
+                <option value="NECROBINDER">Necrobinder</option>
+              </select>
+            </label>
+            <label>
+              <span>Asc.</span>
+              <input name="ascension" type="number" min="0" max="20" value="0">
+            </label>
+          </div>
+          <div class="split">
+            <label>
+              <span>Actions</span>
+              <input name="max_steps" type="number" min="1" max="500" value="500">
+            </label>
+            <label>
+              <span>Delay</span>
+              <input name="step_delay" type="number" min="0" max="10" step="0.1" value="0.2">
+            </label>
+          </div>
+          <label>
+            <span>Risk</span>
+            <select name="risk">
+              <option value="balanced" selected>balanced</option>
+              <option value="safe">safe</option>
+              <option value="aggressive">aggressive</option>
+            </select>
+          </label>
+          <div class="split">
+            <label>
+              <span>Map Priority</span>
+              <select name="map_priority">
+                <option value="balanced" selected>balanced</option>
+                <option value="safe">rest/safe</option>
+                <option value="shop">shop</option>
+                <option value="elite">elite</option>
+              </select>
+            </label>
+            <label>
+              <span>Potions</span>
+              <select name="potion_policy">
+                <option value="proactive" selected>proactive</option>
+                <option value="normal">normal</option>
+                <option value="conserve">conserve</option>
+              </select>
+            </label>
+          </div>
+          <label class="toggle">
+            <input name="start_run" type="checkbox" checked>
+            <span>Start or restart run</span>
+          </label>
+          <label class="toggle">
+            <input name="allow_tools" type="checkbox">
+            <span>Allow agent tools</span>
+          </label>
+          <label class="toggle">
+            <input name="web_search" type="checkbox">
+            <span>Allow web search</span>
+          </label>
+          <details class="pricing">
+            <summary>Cost estimate rates</summary>
+            <div class="split">
+              <label>
+                <span>Input / 1M</span>
+                <input name="input_per_million" type="number" min="0" step="0.001" value="5.00">
+              </label>
+              <label>
+                <span>Output / 1M</span>
+                <input name="output_per_million" type="number" min="0" step="0.001" value="30.00">
+              </label>
+            </div>
+            <label>
+              <span>Cached input / 1M</span>
+              <input name="cached_input_per_million" type="number" min="0" step="0.001" value="0.50">
+            </label>
+          </details>
+          <div class="button-row">
+            <button id="play-button" type="submit">Play</button>
+            <button id="stop-button" type="button" class="secondary">Stop</button>
+          </div>
+          </form>
+        </div>
+      </aside>
+
+      <section class="stage">
+        <header class="live-header">
+          <div class="live-copy">
+            <span class="eyebrow">visible-game agent benchmark</span>
+            <h2>Agent climbing the Spire</h2>
+            <p id="hero-subtitle">Waiting for the first visible run.</p>
+          </div>
+          <div class="live-signal" aria-live="polite">
+            <span class="signal-dot"></span>
+            <span id="live-status">idle</span>
+          </div>
+        </header>
+
+        <section class="metric-grid">
+          <div class="metric">
+            <span>Actions</span>
+            <strong id="metric-actions">0</strong>
+          </div>
+          <div class="metric">
+            <span>Input</span>
+            <strong id="metric-input">0</strong>
+            <small id="metric-billable">billable 0</small>
+          </div>
+          <div class="metric">
+            <span>Cached Input</span>
+            <strong id="metric-cached">0</strong>
+          </div>
+          <div class="metric">
+            <span>Output</span>
+            <strong id="metric-output">0</strong>
+          </div>
+          <div class="metric">
+            <span>Agent Time</span>
+            <strong id="metric-time">0s</strong>
+          </div>
+          <div class="metric">
+            <span>Cost Est.</span>
+            <strong id="metric-cost">--</strong>
+          </div>
+        </section>
+
+        <section class="run-strip">
+          <div>
+            <span class="eyebrow">Run</span>
+            <strong id="run-title">No active run</strong>
+          </div>
+          <code id="trace-path">trace not created</code>
+        </section>
+
+        <section class="human-overview">
+          <article class="human-panel plan-panel">
+            <div class="section-head">
+              <h2>Agent Plan</h2>
+              <span id="plan-updated">waiting</span>
+            </div>
+            <div id="plan-summary" class="plan-summary">
+              <div class="plan-empty">Waiting for the first agent decision.</div>
+            </div>
+          </article>
+          <article class="human-panel current-panel">
+            <div class="section-head">
+              <h2>Current Move</h2>
+              <span id="current-status">idle</span>
+            </div>
+            <div id="current-move" class="current-move">
+              <strong>No move yet</strong>
+              <p>Start a run to see the agent's latest rationale.</p>
+            </div>
+          </article>
+        </section>
+
+        <section class="workbench">
+          <div class="timeline-column">
+            <div class="section-head">
+              <h2>Decision Feed</h2>
+              <span id="event-count">0 events</span>
+            </div>
+            <div id="timeline" class="timeline"></div>
+          </div>
+          <aside class="debug-column">
+            <details class="debug-panel">
+              <summary>
+                <span>Debug Bridge</span>
+                <span id="state-chip">menu</span>
+              </summary>
+              <div class="debug-bridge">
+                <span>Visible game</span>
+                <strong id="bridge-status">Checking bridge</strong>
+              </div>
+            </details>
+            <details class="debug-panel">
+              <summary>
+                <span>Debug State</span>
+                <span id="floor-label">floor --</span>
+              </summary>
+              <pre id="state-json">{}</pre>
+            </details>
+            <details class="debug-panel">
+              <summary>
+                <span>Raw Run Memory</span>
+                <span>JSON</span>
+              </summary>
+              <pre id="memory-json">{}</pre>
+            </details>
+          </aside>
+        </section>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

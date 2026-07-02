@@ -2,6 +2,11 @@
 __pycache__/
 *.py[codz]
 *$py.class
+.DS_Store
+
+# Slay the Spire 2 agent harness local output
+agent_runs/
+.vendor/
 
 # C extensions
 *.so

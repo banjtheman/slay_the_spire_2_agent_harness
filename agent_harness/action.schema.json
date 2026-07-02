@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Slay the Spire 2 Agent Action",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rationale", "action", "args", "expected", "confidence", "tool_notes"],
+  "properties": {
+    "rationale": {
+      "type": "string",
+      "description": "A concise public reasoning summary for display."
+    },
+    "action": {
+      "type": "string",
+      "description": "One bridge action name to execute."
+    },
+    "args": {
+      "type": "object",
+      "description": "Action arguments for the bridge.",
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "type": ["integer", "null"]
+        },
+        "option_index": {
+          "type": ["integer", "null"]
+        },
+        "card_index": {
+          "type": ["integer", "null"]
+        },
+        "target_index": {
+          "type": ["integer", "null"]
+        },
+        "target": {
+          "type": ["string", "null"]
+        },
+        "slot": {
+          "type": ["integer", "null"]
+        },
+        "potion_index": {
+          "type": ["integer", "null"]
+        },
+        "relic_index": {
+          "type": ["integer", "null"]
+        },
+        "indices": {
+          "type": ["string", "null"]
+        },
+        "col": {
+          "type": ["integer", "null"]
+        },
+        "row": {
+          "type": ["integer", "null"]
+        },
+        "character": {
+          "type": ["string", "null"]
+        },
+        "ascension": {
+          "type": ["integer", "null"]
+        },
+        "seconds": {
+          "type": ["number", "null"]
+        }
+      },
+      "required": [
+        "index",
+        "option_index",
+        "card_index",
+        "target_index",
+        "target",
+        "slot",
+        "potion_index",
+        "relic_index",
+        "indices",
+        "col",
+        "row",
+        "character",
+        "ascension",
+        "seconds"
+      ]
+    },
+    "expected": {
+      "type": ["string", "null"],
+      "description": "Short expected result of the action."
+    },
+    "confidence": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "tool_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Optional public notes about any useful tool calls or lookups."
+    }
+  }
+}

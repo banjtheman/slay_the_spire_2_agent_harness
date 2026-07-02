@@ -1,0 +1,17 @@
+[project]
+name = "slay-the-spire-2-agent-harness"
+version = "0.1.0"
+description = "Visible-game Slay the Spire 2 harness for Codex CLI, Claude Code, and Cursor Agent."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Banjtheman" }
+]
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/banjtheman/slay_the_spire_2_agent_harness"
+
+[tool.pytest.ini_options]
+testpaths = []

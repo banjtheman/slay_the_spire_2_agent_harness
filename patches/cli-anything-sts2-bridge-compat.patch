@@ -1,0 +1,386 @@
+diff --git a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.Actions.cs b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.Actions.cs
+index be7e096..02564b6 100644
+--- a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.Actions.cs
++++ b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.Actions.cs
+@@ -1,3 +1,4 @@
++using System;
+ using System.Collections.Generic;
+ using System.Linq;
+ using System.Reflection;
+@@ -15,7 +16,6 @@ using MegaCrit.Sts2.Core.Nodes.Screens.TreasureRoomRelic;
+ using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
+ using MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect;
+ using MegaCrit.Sts2.Core.Nodes.Screens.GameOverScreen;
+-using MegaCrit.Sts2.Core.Nodes.CommonUi;
+ using MegaCrit.Sts2.Core.Nodes;
+ using MegaCrit.Sts2.Core.Entities.Merchant;
+ using MegaCrit.Sts2.Core.Nodes.Events;
+@@ -42,6 +42,9 @@ public static partial class BridgeMod
+ {
+     private static Dictionary<string, object?> ExecuteAction(string action, Dictionary<string, JsonElement> data)
+     {
++        if (action is "continue_game" or "start_new_game" or "abandon_game")
++            return ExecuteMenuAction(action, data);
++
+         if (!RunManager.Instance.IsInProgress)
+             return ExecuteMenuAction(action, data);
+ 
+@@ -156,9 +159,8 @@ public static partial class BridgeMod
+                 return Error("Main menu is not open");
+ 
+             var singleplayerButton = GetFieldValue<NMainMenuTextButton>(mainMenu, "_singleplayerButton");
+-            if (singleplayerButton == null || !singleplayerButton.IsVisibleInTree())
+-                return Error("Singleplayer button is not available");
+-            singleplayerButton.ForceClick();
++            if (singleplayerButton != null && singleplayerButton.IsVisibleInTree())
++                singleplayerButton.ForceClick();
+ 
+             var submenu = mainMenu.OpenSingleplayerSubmenu();
+             if (submenu == null || !submenu.IsVisibleInTree())
+@@ -275,7 +277,7 @@ public static partial class BridgeMod
+         if (game == null)
+             return Error("Game node is not available");
+ 
+-        game.ReturnToMainMenu().GetAwaiter().GetResult();
++        _ = game.ReturnToMainMenu();
+ 
+         return new Dictionary<string, object?>
+         {
+@@ -288,7 +290,7 @@ public static partial class BridgeMod
+     {
+         if (!CombatManager.Instance.IsInProgress)
+             return Error("Not in combat");
+-        if (!CombatManager.Instance.IsPlayPhase)
++        if (!IsPlayerPlayPhase())
+             return Error("Not in play phase — cannot act during enemy turn");
+         if (CombatManager.Instance.PlayerActionsDisabled)
+             return Error("Player actions are currently disabled");
+@@ -343,7 +345,7 @@ public static partial class BridgeMod
+     {
+         if (!CombatManager.Instance.IsInProgress)
+             return Error("Not in combat");
+-        if (!CombatManager.Instance.IsPlayPhase)
++        if (!IsPlayerPlayPhase())
+             return Error("Not in play phase — cannot act during enemy turn");
+         if (CombatManager.Instance.PlayerActionsDisabled)
+             return Error("Player actions are currently disabled (turn may already be ending)");
+@@ -386,7 +388,7 @@ public static partial class BridgeMod
+         {
+             if (!inCombat)
+                 return Error($"Potion '{SafeGetText(() => potion.Title)}' can only be used in combat");
+-            if (!CombatManager.Instance.IsPlayPhase)
++            if (!IsPlayerPlayPhase())
+                 return Error("Cannot use potions outside of play phase");
+         }
+         else if (potion.Usage == PotionUsage.Automatic)
+@@ -535,7 +537,11 @@ public static partial class BridgeMod
+ 
+         int index = indexElem.GetInt32();
+ 
+-        var allEntries = merchantRoom.Inventory.AllEntries.ToList();
++        dynamic? inventory = NMerchantRoom.Instance?.Inventory;
++        if (inventory == null)
++            return Error("Shop inventory is not available");
++
++        var allEntries = inventory.AllEntries.ToList();
+         if (index < 0 || index >= allEntries.Count)
+             return Error($"Shop item index {index} out of range ({allEntries.Count} items)");
+ 
+@@ -546,7 +552,7 @@ public static partial class BridgeMod
+             return Error($"Not enough gold (need {entry.Cost}, have {player.Gold})");
+ 
+         // Fire-and-forget purchase (same path as AutoSlay)
+-        _ = entry.OnTryPurchaseWrapper(merchantRoom.Inventory);
++        _ = entry.OnTryPurchaseWrapper(inventory);
+ 
+         return new Dictionary<string, object?>
+         {
+@@ -674,12 +680,35 @@ public static partial class BridgeMod
+         var overlay = NOverlayStack.Instance?.Peek();
+         if (overlay is NRewardsScreen rewardsScreen)
+         {
++            var remainingRewards = FindAll<NRewardButton>(rewardsScreen)
++                .Where(b => b.IsEnabled && b.Reward != null)
++                .ToList();
++            if (remainingRewards.Count > 0 && !HasOnlyUnclaimablePotionRewards(remainingRewards))
++                return Error($"Reward items remain ({remainingRewards.Count}); claim rewards before proceeding");
++
+             var btn = FindFirst<NProceedButton>(rewardsScreen);
+             if (btn is { IsEnabled: true })
+             {
+                 btn.ForceClick();
++                TryCompleteRewardsScreen(rewardsScreen, btn);
++                ForcePastEmptyRewardsOverlay();
+                 return new Dictionary<string, object?> { ["status"] = "ok", ["message"] = "Proceeding from rewards" };
+             }
++
++            try
++            {
++                RunManager.Instance.ProceedFromTerminalRewardsScreen().GetAwaiter().GetResult();
++                ForcePastEmptyRewardsOverlay();
++                return new Dictionary<string, object?> { ["status"] = "ok", ["message"] = "Proceeding from rewards" };
++            }
++            catch
++            {
++                if (btn != null)
++                {
++                    btn.ForceClick();
++                    return new Dictionary<string, object?> { ["status"] = "ok", ["message"] = "Proceeding from rewards" };
++                }
++            }
+         }
+ 
+         // Try rest site
+@@ -717,6 +746,78 @@ public static partial class BridgeMod
+         return Error("No proceed button available or enabled");
+     }
+ 
++    private static void ForcePastEmptyRewardsOverlay()
++    {
++        var overlay = NOverlayStack.Instance?.Peek();
++        if (overlay is not NRewardsScreen rewardsScreen)
++            return;
++
++        var remainingRewards = FindAll<NRewardButton>(rewardsScreen)
++            .Where(b => b.IsEnabled && b.Reward != null)
++            .ToList();
++        if (remainingRewards.Count > 0 && !HasOnlyUnclaimablePotionRewards(remainingRewards))
++            return;
++
++        TryCompleteRewardsScreen(rewardsScreen, FindFirst<NProceedButton>(rewardsScreen));
++
++        var runState = RunManager.Instance.DebugOnlyGetState();
++        if (runState?.CurrentRoom is not MapRoom)
++            RunManager.Instance.EnterRoom(new MapRoom()).GetAwaiter().GetResult();
++    }
++
++    private static bool HasOnlyUnclaimablePotionRewards(List<NRewardButton> rewardButtons)
++    {
++        if (rewardButtons.Count == 0)
++            return false;
++        if (rewardButtons.Any(button => button.Reward is not PotionReward))
++            return false;
++
++        var runState = RunManager.Instance.DebugOnlyGetState();
++        if (runState == null)
++            return false;
++        var player = LocalContext.GetMe(runState);
++        if (player == null)
++            return false;
++        return player.PotionSlots.Count > 0 && player.PotionSlots.All(slot => slot != null);
++    }
++
++    private static void TryCompleteRewardsScreen(NRewardsScreen rewardsScreen, NProceedButton? proceedButton)
++    {
++        try
++        {
++            if (proceedButton != null)
++            {
++                var method = rewardsScreen.GetType().GetMethod(
++                    "OnProceedButtonPressed",
++                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
++                method?.Invoke(rewardsScreen, new object?[] { proceedButton });
++            }
++        }
++        catch { }
++
++        try
++        {
++            var prop = rewardsScreen.GetType().GetProperty(
++                "IsComplete",
++                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
++            prop?.SetValue(rewardsScreen, true);
++        }
++        catch
++        {
++            try
++            {
++                var field = rewardsScreen.GetType().GetField(
++                    "<IsComplete>k__BackingField",
++                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
++                field?.SetValue(rewardsScreen, true);
++            }
++            catch { }
++        }
++
++        try { NOverlayStack.Instance?.Remove(rewardsScreen); }
++        catch { }
++    }
++
+     private static Dictionary<string, object?> ExecuteSelectCard(Dictionary<string, JsonElement> data)
+     {
+         var overlay = NOverlayStack.Instance?.Peek();
+@@ -1011,7 +1112,7 @@ public static partial class BridgeMod
+         };
+     }
+ 
+-    private static Creature? ResolveTarget(CombatState combatState, string entityId)
++    private static Creature? ResolveTarget(ICombatState combatState, string entityId)
+     {
+         // Try to match by entity_id pattern: "model_entry_N"
+         // First try matching by combat_id if it's a pure number
+diff --git a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.Helpers.cs b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.Helpers.cs
+index c50a952..77fdd24 100644
+--- a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.Helpers.cs
++++ b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.Helpers.cs
+@@ -4,6 +4,7 @@ using System.Net;
+ using System.Text;
+ using System.Text.Json;
+ using Godot;
++using MegaCrit.Sts2.Core.Combat;
+ using MegaCrit.Sts2.Core.Entities.Cards;
+ using MegaCrit.Sts2.Core.HoverTips;
+ using MegaCrit.Sts2.Core.Models;
+@@ -12,6 +13,19 @@ namespace STS2_Bridge;
+ 
+ public static partial class BridgeMod
+ {
++    private static bool IsPlayerPlayPhase()
++    {
++        try
++        {
++            if (!CombatManager.Instance.IsInProgress)
++                return false;
++            var combatState = CombatManager.Instance.DebugOnlyGetState();
++            return combatState != null
++                && string.Equals(combatState.CurrentSide.ToString(), "Player", StringComparison.OrdinalIgnoreCase);
++        }
++        catch { return false; }
++    }
++
+     private static string? SafeGetCardDescription(CardModel card, PileType pile = PileType.Hand)
+     {
+         try { return StripRichTextTags(card.GetDescriptionForPile(pile)).Replace("\n", " "); }
+diff --git a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.MultiplayerActions.cs b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.MultiplayerActions.cs
+index 000632f..a52c839 100644
+--- a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.MultiplayerActions.cs
++++ b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.MultiplayerActions.cs
+@@ -61,7 +61,7 @@ public static partial class BridgeMod
+     {
+         if (!CombatManager.Instance.IsInProgress)
+             return Error("Not in combat");
+-        if (!CombatManager.Instance.IsPlayPhase)
++        if (!IsPlayerPlayPhase())
+             return Error("Not in play phase — cannot act during enemy turn");
+         if (CombatManager.Instance.PlayerActionsDisabled)
+             return Error("Player actions are currently disabled");
+@@ -94,7 +94,7 @@ public static partial class BridgeMod
+     {
+         if (!CombatManager.Instance.IsInProgress)
+             return Error("Not in combat");
+-        if (!CombatManager.Instance.IsPlayPhase)
++        if (!IsPlayerPlayPhase())
+             return Error("Not in play phase — cannot act during enemy turn");
+         if (CombatManager.Instance.PlayerActionsDisabled)
+             return Error("Player actions are currently disabled");
+diff --git a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.MultiplayerState.cs b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.MultiplayerState.cs
+index c23111c..1aabf6d 100644
+--- a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.MultiplayerState.cs
++++ b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.MultiplayerState.cs
+@@ -82,6 +82,16 @@ public static partial class BridgeMod
+             result["state_type"] = "relic_select";
+             result["relic_select"] = BuildRelicSelectState(relicSelectScreen, runState);
+         }
++        else if (topOverlay is NCardRewardSelectionScreen globalCardScreen)
++        {
++            result["state_type"] = "card_reward";
++            result["card_reward"] = BuildCardRewardState(globalCardScreen);
++        }
++        else if (topOverlay is NRewardsScreen globalRewardsScreen)
++        {
++            result["state_type"] = "combat_rewards";
++            result["rewards"] = BuildRewardsState(globalRewardsScreen, runState);
++        }
+         else if (topOverlay is IOverlayScreen
+                  && topOverlay is not NRewardsScreen
+                  && topOverlay is not NCardRewardSelectionScreen)
+@@ -232,7 +242,7 @@ public static partial class BridgeMod
+ 
+         battle["round"] = combatState.RoundNumber;
+         battle["turn"] = combatState.CurrentSide.ToString().ToLower();
+-        battle["is_play_phase"] = CombatManager.Instance.IsPlayPhase;
++        battle["is_play_phase"] = IsPlayerPlayPhase();
+         battle["all_players_ready"] = CombatManager.Instance.AllPlayersReadyToEndTurn();
+ 
+         // All players in combat — full state for local player, summary for others
+diff --git a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.StateBuilder.cs b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.StateBuilder.cs
+index 965ca64..973744b 100644
+--- a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.StateBuilder.cs
++++ b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.StateBuilder.cs
+@@ -81,6 +81,16 @@ public static partial class BridgeMod
+             result["state_type"] = "game_over";
+             result["game_over"] = BuildGameOverState(gameOverScreen, runState);
+         }
++        else if (topOverlay is NCardRewardSelectionScreen globalCardScreen)
++        {
++            result["state_type"] = "card_reward";
++            result["card_reward"] = BuildCardRewardState(globalCardScreen);
++        }
++        else if (topOverlay is NRewardsScreen globalRewardsScreen)
++        {
++            result["state_type"] = "combat_rewards";
++            result["rewards"] = BuildRewardsState(globalRewardsScreen, runState);
++        }
+         else if (topOverlay is IOverlayScreen
+                  && topOverlay is not NRewardsScreen
+                  && topOverlay is not NCardRewardSelectionScreen)
+@@ -350,7 +360,7 @@ public static partial class BridgeMod
+ 
+         battle["round"] = combatState.RoundNumber;
+         battle["turn"] = combatState.CurrentSide.ToString().ToLower();
+-        battle["is_play_phase"] = CombatManager.Instance.IsPlayPhase;
++        battle["is_play_phase"] = IsPlayerPlayPhase();
+ 
+         // Player state
+         var player = LocalContext.GetMe(runState);
+@@ -728,7 +738,13 @@ public static partial class BridgeMod
+             };
+         }
+ 
+-        var inventory = merchantRoom.Inventory;
++        dynamic? inventory = NMerchantRoom.Instance?.Inventory;
++        if (inventory == null)
++        {
++            state["items"] = new List<Dictionary<string, object?>>();
++            state["error"] = "Shop inventory is not available";
++            return state;
++        }
+         var items = new List<Dictionary<string, object?>>();
+         int index = 0;
+ 
+diff --git a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.cs b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.cs
+index 662412f..9575ec7 100644
+--- a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.cs
++++ b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.cs
+@@ -200,7 +200,7 @@ public static partial class BridgeMod
+         try
+         {
+             var stateTask = RunOnMainThread(() => BuildMultiplayerGameState());
+-            var state = stateTask.GetAwaiter().GetResult();
++            var state = AwaitMainThreadState(stateTask, "read multiplayer game state");
+ 
+             if (format == "markdown")
+             {
+@@ -262,7 +262,7 @@ public static partial class BridgeMod
+         try
+         {
+             var stateTask = RunOnMainThread(() => BuildGameState());
+-            var state = stateTask.GetAwaiter().GetResult();
++            var state = AwaitMainThreadState(stateTask, "read game state");
+ 
+             if (format == "markdown")
+             {
+@@ -280,6 +280,13 @@ public static partial class BridgeMod
+         }
+     }
+ 
++    private static T AwaitMainThreadState<T>(Task<T> task, string operation)
++    {
++        if (!task.Wait(TimeSpan.FromSeconds(3)))
++            throw new TimeoutException($"Timed out waiting for the Godot main thread to {operation}");
++        return task.GetAwaiter().GetResult();
++    }
++
+     private static void HandlePostAction(HttpListenerRequest request, HttpListenerResponse response)
+     {
+         string body;

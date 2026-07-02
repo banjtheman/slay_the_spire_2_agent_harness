@@ -1,0 +1,70 @@
+{
+  "type": "decision",
+  "decision": "combat_play",
+  "room_type": "monster",
+  "context": {
+    "act": 1,
+    "floor": 1,
+    "ascension": 0
+  },
+  "round": 1,
+  "turn": 1,
+  "is_play_phase": true,
+  "energy": 3,
+  "max_energy": 3,
+  "player": {
+    "name": "Ironclad",
+    "hp": 80,
+    "max_hp": 80,
+    "block": 0,
+    "gold": 99,
+    "relics": [
+      {
+        "name": "Burning Blood",
+        "description": "At the end of combat, heal 6 HP."
+      }
+    ],
+    "potions": []
+  },
+  "enemies": [
+    {
+      "index": 0,
+      "name": "Nibbit",
+      "entity_id": "NIBBIT_0",
+      "hp": 45,
+      "max_hp": 45,
+      "block": 0,
+      "intent": "Attack",
+      "intent_damage": 12,
+      "intent_hits": 1
+    }
+  ],
+  "hand": [
+    {
+      "index": 0,
+      "name": "Defend",
+      "cost": 1,
+      "block": 5,
+      "description": "Gain 5 Block.",
+      "playable": true
+    },
+    {
+      "index": 1,
+      "name": "Bash",
+      "cost": 2,
+      "damage": 8,
+      "description": "Deal 8 damage. Apply 2 Vulnerable.",
+      "playable": true,
+      "target_required": true
+    },
+    {
+      "index": 2,
+      "name": "Strike",
+      "cost": 1,
+      "damage": 6,
+      "description": "Deal 6 damage.",
+      "playable": true,
+      "target_required": true
+    }
+  ]
+}
