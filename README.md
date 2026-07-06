@@ -16,6 +16,8 @@ The goal is to make agent behavior easy to inspect and easy to modify. You can c
 
 Gameplay demo: [docs/demo.mp4](docs/demo.mp4)
 
+Benchmark design notes: [docs/BENCHMARK.md](docs/BENCHMARK.md)
+
 ## Status
 
 This is an early playable harness. It can start visible runs, choose map nodes, play combats, handle rewards, and show run traces in the dashboard. Slay the Spire 2 is still new, so expect edge cases when the game introduces unusual screens, relic-specific card selection flows, or encounters the prompt does not understand yet.
@@ -100,7 +102,7 @@ Only one agent CLI is required. The dashboard can show all harness choices, but 
 
 ## Install the Visible Game Bridge
 
-The harness controls the actual visible game through the `STS2_Bridge` in-game mod. The helper script vendors the upstream `CLI-Anything` bridge project under `.vendor/`, applies the compatibility patch in `patches/`, builds the plugin, and installs it into the Steam game directory.
+The harness controls the actual visible game through the `STS2_Bridge` in-game mod. The helper script vendors the upstream `CLI-Anything` bridge project under `.vendor/`, applies this repo's bundled bridge compatibility fixes, builds the plugin, and installs it into the Steam game directory.
 
 ```bash
 ./scripts/setup_live_bridge.sh
@@ -294,7 +296,7 @@ Common failures:
 - `bridge offline`: launch STS2, enable `STS2_Bridge`, then fully restart the game.
 - `decision: menu`: the game is at the main menu. Use `--start-run` or check `Start or restart run` in the dashboard.
 - `.NET SDK does not support targeting .NET 9.0`: install a .NET 9+ SDK and rerun `./scripts/setup_live_bridge.sh`.
-- `Could not apply bridge compatibility patch`: upstream `CLI-Anything` changed. See the patching section below.
+- `Could not apply bundled bridge compatibility fixes`: upstream `CLI-Anything` changed. See `Updating the Bridge` below.
 - `Method not found` from the bridge: rebuild/reinstall the bridge, then fully restart STS2.
 - Agent times out: lower `max_steps`, increase `--agent-timeout`, or test `decide` with the sample state first.
 - Agent chooses invalid or stale actions: check the JSONL trace. The runner re-reads state after each action, but new game screens may need bridge normalization or prompt guidance.
@@ -306,7 +308,15 @@ agent_runs/
 .vendor/
 ```
 
-## Updating or Patching the Bridge
+## Updating the Bridge
+
+Normal users should not need to patch the bridge manually. Run setup again after pulling repo changes:
+
+```bash
+./scripts/setup_live_bridge.sh
+```
+
+Then fully quit and restart Slay the Spire 2. The running game process keeps the old DLL loaded.
 
 The bridge source is vendored at setup time:
 
@@ -320,14 +330,14 @@ This repo carries one patch:
 patches/cli-anything-sts2-bridge-compat.patch
 ```
 
-The setup script applies that patch before building. If the patch fails because upstream changed:
+The setup script applies that patch automatically before building. If setup says it could not apply the bundled bridge compatibility fixes, first try a clean vendor refresh:
 
 ```bash
 rm -rf .vendor/CLI-Anything
 ./scripts/setup_live_bridge.sh
 ```
 
-If it still fails, update the patch:
+If it still fails, upstream changed and a maintainer needs to update the patch:
 
 ```bash
 git clone https://github.com/HKUDS/CLI-Anything.git /tmp/CLI-Anything
@@ -337,13 +347,11 @@ git apply /path/to/slay_the_spire_2_agent_harness/patches/cli-anything-sts2-brid
 git diff > /path/to/slay_the_spire_2_agent_harness/patches/cli-anything-sts2-bridge-compat.patch
 ```
 
-Then rerun:
+Then rerun setup:
 
 ```bash
 ./scripts/setup_live_bridge.sh
 ```
-
-Always fully quit and restart Slay the Spire 2 after reinstalling the bridge. The running game process keeps the old DLL loaded.
 
 ## Adding More Agents
 

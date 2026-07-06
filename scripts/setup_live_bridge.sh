@@ -48,12 +48,12 @@ HARNESS_DIR="$CLI_ANYTHING_DIR/slay_the_spire_ii/agent-harness"
 
 if [ -f "$BRIDGE_PATCH" ]; then
   if git -C "$CLI_ANYTHING_DIR" apply --reverse --check "$BRIDGE_PATCH" >/dev/null 2>&1; then
-    echo "Bridge compatibility patch already applied."
+    echo "✓ Bridge compatibility fixes already applied."
   elif git -C "$CLI_ANYTHING_DIR" apply --check "$BRIDGE_PATCH" >/dev/null 2>&1; then
-    echo "Applying bridge compatibility patch..."
+    echo "Applying bridge compatibility fixes..."
     git -C "$CLI_ANYTHING_DIR" apply "$BRIDGE_PATCH"
   else
-    echo "ERROR: Could not apply bridge compatibility patch:" >&2
+    echo "ERROR: Could not apply bundled bridge compatibility fixes:" >&2
     echo "  $BRIDGE_PATCH" >&2
     echo "The upstream bridge may have changed. Inspect $CLI_ANYTHING_DIR and update the patch." >&2
     exit 1

@@ -1,5 +1,5 @@
 diff --git a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.Actions.cs b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.Actions.cs
-index be7e096..02564b6 100644
+index be7e096..8712307 100644
 --- a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.Actions.cs
 +++ b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.Actions.cs
 @@ -1,3 +1,4 @@
@@ -73,29 +73,36 @@ index be7e096..02564b6 100644
                  return Error("Cannot use potions outside of play phase");
          }
          else if (potion.Usage == PotionUsage.Automatic)
-@@ -535,7 +537,11 @@ public static partial class BridgeMod
+@@ -535,18 +537,25 @@ public static partial class BridgeMod
  
          int index = indexElem.GetInt32();
  
 -        var allEntries = merchantRoom.Inventory.AllEntries.ToList();
-+        dynamic? inventory = NMerchantRoom.Instance?.Inventory;
++        object? inventoryNode = NMerchantRoom.Instance?.Inventory;
++        object? inventory = inventoryNode == null ? null : GetMember(inventoryNode, "Inventory") ?? inventoryNode;
 +        if (inventory == null)
 +            return Error("Shop inventory is not available");
 +
-+        var allEntries = inventory.AllEntries.ToList();
++        var allEntries = GetMerchantInventoryEntries(inventory);
++        if (allEntries.Count == 0)
++            return Error("Shop inventory entries are not available");
          if (index < 0 || index >= allEntries.Count)
              return Error($"Shop item index {index} out of range ({allEntries.Count} items)");
  
-@@ -546,7 +552,7 @@ public static partial class BridgeMod
+-        var entry = allEntries[index];
++        dynamic entry = allEntries[index];
+         if (!entry.IsStocked)
+             return Error("Item is sold out");
+         if (!entry.EnoughGold)
              return Error($"Not enough gold (need {entry.Cost}, have {player.Gold})");
  
          // Fire-and-forget purchase (same path as AutoSlay)
 -        _ = entry.OnTryPurchaseWrapper(merchantRoom.Inventory);
-+        _ = entry.OnTryPurchaseWrapper(inventory);
++        _ = entry.OnTryPurchaseWrapper((dynamic)inventory, false);
  
          return new Dictionary<string, object?>
          {
-@@ -674,12 +680,35 @@ public static partial class BridgeMod
+@@ -674,12 +683,35 @@ public static partial class BridgeMod
          var overlay = NOverlayStack.Instance?.Peek();
          if (overlay is NRewardsScreen rewardsScreen)
          {
@@ -131,7 +138,7 @@ index be7e096..02564b6 100644
          }
  
          // Try rest site
-@@ -717,6 +746,78 @@ public static partial class BridgeMod
+@@ -717,6 +749,78 @@ public static partial class BridgeMod
          return Error("No proceed button available or enabled");
      }
  
@@ -210,7 +217,7 @@ index be7e096..02564b6 100644
      private static Dictionary<string, object?> ExecuteSelectCard(Dictionary<string, JsonElement> data)
      {
          var overlay = NOverlayStack.Instance?.Peek();
-@@ -1011,7 +1112,7 @@ public static partial class BridgeMod
+@@ -1011,7 +1115,7 @@ public static partial class BridgeMod
          };
      }
  
@@ -304,10 +311,18 @@ index c23111c..1aabf6d 100644
  
          // All players in combat — full state for local player, summary for others
 diff --git a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.StateBuilder.cs b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.StateBuilder.cs
-index 965ca64..973744b 100644
+index 965ca64..7aae30c 100644
 --- a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.StateBuilder.cs
 +++ b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.StateBuilder.cs
-@@ -81,6 +81,16 @@ public static partial class BridgeMod
+@@ -1,5 +1,7 @@
++using System;
+ using System.Collections.Generic;
+ using System.Linq;
++using System.Reflection;
+ using MegaCrit.Sts2.Core.Combat;
+ using MegaCrit.Sts2.Core.Context;
+ using MegaCrit.Sts2.Core.Entities.Cards;
+@@ -81,6 +83,16 @@ public static partial class BridgeMod
              result["state_type"] = "game_over";
              result["game_over"] = BuildGameOverState(gameOverScreen, runState);
          }
@@ -324,7 +339,7 @@ index 965ca64..973744b 100644
          else if (topOverlay is IOverlayScreen
                   && topOverlay is not NRewardsScreen
                   && topOverlay is not NCardRewardSelectionScreen)
-@@ -350,7 +360,7 @@ public static partial class BridgeMod
+@@ -350,7 +362,7 @@ public static partial class BridgeMod
  
          battle["round"] = combatState.RoundNumber;
          battle["turn"] = combatState.CurrentSide.ToString().ToLower();
@@ -333,12 +348,13 @@ index 965ca64..973744b 100644
  
          // Player state
          var player = LocalContext.GetMe(runState);
-@@ -728,7 +738,13 @@ public static partial class BridgeMod
+@@ -728,98 +740,175 @@ public static partial class BridgeMod
              };
          }
  
 -        var inventory = merchantRoom.Inventory;
-+        dynamic? inventory = NMerchantRoom.Instance?.Inventory;
++        object? inventoryNode = NMerchantRoom.Instance?.Inventory;
++        object? inventory = inventoryNode == null ? null : GetMember(inventoryNode, "Inventory") ?? inventoryNode;
 +        if (inventory == null)
 +        {
 +            state["items"] = new List<Dictionary<string, object?>>();
@@ -346,8 +362,244 @@ index 965ca64..973744b 100644
 +            return state;
 +        }
          var items = new List<Dictionary<string, object?>>();
-         int index = 0;
+-        int index = 0;
++        var allEntries = GetMerchantInventoryEntries(inventory);
++        if (allEntries.Count == 0)
++        {
++            state["error"] = "Shop inventory entries are not available";
++            state["inventory_type"] = inventory.GetType().FullName;
++            state["inventory_members"] = ListMemberNames(inventory);
++        }
++        for (int index = 0; index < allEntries.Count; index++)
++            items.Add(BuildShopItem(index, allEntries[index]));
  
+-        // Cards
+-        foreach (var entry in inventory.CardEntries)
++        state["items"] = items;
++
++        var proceedButton = NMerchantRoom.Instance?.ProceedButton;
++        state["can_proceed"] = proceedButton?.IsEnabled ?? false;
++
++        return state;
++    }
++
++    private static List<object> GetMerchantInventoryEntries(object inventory)
++    {
++        foreach (var name in new[]
+         {
+-            var item = new Dictionary<string, object?>
+-            {
+-                ["index"] = index,
+-                ["category"] = "card",
+-                ["cost"] = entry.Cost,
+-                ["is_stocked"] = entry.IsStocked,
+-                ["can_afford"] = entry.EnoughGold,
+-                ["on_sale"] = entry.IsOnSale
+-            };
+-            if (entry.CreationResult?.Card is { } card)
+-            {
+-                item["card_id"] = card.Id.Entry;
+-                item["card_name"] = SafeGetText(() => card.Title);
+-                item["card_type"] = card.Type.ToString();
+-                item["card_rarity"] = card.Rarity.ToString();
+-                item["card_description"] = SafeGetCardDescription(card, PileType.None);
+-                item["keywords"] = BuildHoverTips(card.HoverTips);
+-            }
+-            items.Add(item);
+-            index++;
++            "AllEntries",
++            "Entries",
++            "Items",
++            "ShopEntries",
++            "MerchantEntries",
++            "VisibleEntries",
++            "PurchasableEntries",
++            "CharacterCardEntries",
++            "ColorlessCardEntries",
++            "RelicEntries",
++            "PotionEntries",
++        })
++        {
++            if (GetMember(inventory, name) is System.Collections.IEnumerable values && values is not string)
++                return values.Cast<object>().ToList();
+         }
+ 
+-        // Relics
+-        foreach (var entry in inventory.RelicEntries)
++        var entries = new List<object>();
++        foreach (var name in new[] { "CardRemovalEntry", "RemovalEntry" })
+         {
+-            var item = new Dictionary<string, object?>
+-            {
+-                ["index"] = index,
+-                ["category"] = "relic",
+-                ["cost"] = entry.Cost,
+-                ["is_stocked"] = entry.IsStocked,
+-                ["can_afford"] = entry.EnoughGold
+-            };
+-            if (entry.Model is { } relic)
+-            {
+-                item["relic_id"] = relic.Id.Entry;
+-                item["relic_name"] = SafeGetText(() => relic.Title);
+-                item["relic_description"] = SafeGetText(() => relic.DynamicDescription);
+-                item["keywords"] = BuildHoverTips(relic.HoverTipsExcludingRelic);
+-            }
+-            items.Add(item);
+-            index++;
++            var entry = GetMember(inventory, name);
++            if (entry != null)
++                entries.Add(entry);
+         }
++        return entries;
++    }
+ 
+-        // Potions
+-        foreach (var entry in inventory.PotionEntries)
++    private static List<string> ListMemberNames(object source)
++    {
++        var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
++        var type = source.GetType();
++        return type.GetProperties(flags).Select(p => $"property:{p.Name}:{p.PropertyType.Name}")
++            .Concat(type.GetFields(flags).Select(f => $"field:{f.Name}:{f.FieldType.Name}"))
++            .OrderBy(name => name)
++            .ToList();
++    }
++
++    private static Dictionary<string, object?> BuildShopItem(int index, object entry)
++    {
++        var item = new Dictionary<string, object?>
+         {
+-            var item = new Dictionary<string, object?>
+-            {
+-                ["index"] = index,
+-                ["category"] = "potion",
+-                ["cost"] = entry.Cost,
+-                ["is_stocked"] = entry.IsStocked,
+-                ["can_afford"] = entry.EnoughGold
+-            };
+-            if (entry.Model is { } potion)
+-            {
+-                item["potion_id"] = potion.Id.Entry;
+-                item["potion_name"] = SafeGetText(() => potion.Title);
+-                item["potion_description"] = SafeGetText(() => potion.DynamicDescription);
+-                item["keywords"] = BuildHoverTips(potion.ExtraHoverTips);
+-            }
+-            items.Add(item);
+-            index++;
++            ["index"] = index,
++            ["category"] = "unknown",
++            ["cost"] = GetIntMember(entry, "Cost"),
++            ["is_stocked"] = GetBoolMember(entry, "IsStocked"),
++            ["can_afford"] = GetBoolMember(entry, "EnoughGold")
++        };
++
++        if (GetBoolMember(entry, "IsOnSale") is { } isOnSale)
++            item["on_sale"] = isOnSale;
++
++        if (GetNestedMember(entry, "CreationResult", "Card") is CardModel card)
++        {
++            item["category"] = "card";
++            item["card_id"] = card.Id.Entry;
++            item["card_name"] = SafeGetText(() => card.Title);
++            item["card_type"] = card.Type.ToString();
++            item["card_rarity"] = card.Rarity.ToString();
++            item["card_description"] = SafeGetCardDescription(card, PileType.None);
++            item["keywords"] = BuildHoverTips(card.HoverTips);
++            return item;
+         }
+ 
+-        // Card removal
+-        if (inventory.CardRemovalEntry is { } removal)
++        var model = GetMember(entry, "Model");
++        if (model is PotionModel potion)
+         {
+-            items.Add(new Dictionary<string, object?>
+-            {
+-                ["index"] = index,
+-                ["category"] = "card_removal",
+-                ["cost"] = removal.Cost,
+-                ["is_stocked"] = removal.IsStocked,
+-                ["can_afford"] = removal.EnoughGold
+-            });
++            item["category"] = "potion";
++            item["potion_id"] = potion.Id.Entry;
++            item["potion_name"] = SafeGetText(() => potion.Title);
++            item["potion_description"] = SafeGetText(() => potion.DynamicDescription);
++            item["keywords"] = BuildHoverTips(potion.ExtraHoverTips);
++            return item;
+         }
+ 
+-        state["items"] = items;
++        if (model != null && HasMember(model, "HoverTipsExcludingRelic"))
++        {
++            item["category"] = "relic";
++            item["relic_id"] = GetNestedMember(model, "Id", "Entry")?.ToString();
++            item["relic_name"] = SafeGetText(() => GetMember(model, "Title"));
++            item["relic_description"] = SafeGetText(() => GetMember(model, "DynamicDescription"));
++            if (GetMember(model, "HoverTipsExcludingRelic") is IEnumerable<IHoverTip> tips)
++                item["keywords"] = BuildHoverTips(tips);
++            return item;
++        }
+ 
+-        var proceedButton = NMerchantRoom.Instance?.ProceedButton;
+-        state["can_proceed"] = proceedButton?.IsEnabled ?? false;
++        var typeName = entry.GetType().Name;
++        if (typeName.Contains("Removal", StringComparison.OrdinalIgnoreCase))
++            item["category"] = "card_removal";
++        item["entry_type"] = typeName;
++        return item;
++    }
+ 
+-        return state;
++    private static object? GetNestedMember(object source, params string[] names)
++    {
++        object? current = source;
++        foreach (var name in names)
++        {
++            if (current == null)
++                return null;
++            current = GetMember(current, name);
++        }
++        return current;
++    }
++
++    private static object? GetMember(object source, string name)
++    {
++        try
++        {
++            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
++            var type = source.GetType();
++            var property = type.GetProperty(name, flags);
++            if (property != null)
++                return property.GetValue(source);
++            var field = type.GetField(name, flags);
++            return field?.GetValue(source);
++        }
++        catch { return null; }
++    }
++
++    private static bool HasMember(object source, string name)
++    {
++        var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
++        var type = source.GetType();
++        return type.GetProperty(name, flags) != null || type.GetField(name, flags) != null;
++    }
++
++    private static int? GetIntMember(object source, string name)
++    {
++        var value = GetMember(source, name);
++        try { return value == null ? null : Convert.ToInt32(value); }
++        catch { return null; }
++    }
++
++    private static bool? GetBoolMember(object source, string name)
++    {
++        var value = GetMember(source, name);
++        try { return value == null ? null : Convert.ToBoolean(value); }
++        catch { return null; }
+     }
+ 
+     private static Dictionary<string, object?> BuildMapState(RunState runState)
 diff --git a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.cs b/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.cs
 index 662412f..9575ec7 100644
 --- a/slay_the_spire_ii/agent-harness/bridge/plugin/BridgeMod.cs
